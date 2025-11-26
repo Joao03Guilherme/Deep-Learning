@@ -2,7 +2,7 @@
     "best_valid": 0.6971634615384615,
     "selected_epoch": 20,
     "test": 0.696875,
-    "time": 63.87206411361694,
+    "time": 77.82338380813599,
     "args": {
         "epochs": 20,
         "data_path": "emnist-letters.npz",
@@ -11,6 +11,11 @@
         "l2_decay": 1e-05,
         "save_path": "lr_model.pkl",
         "accuracy_plot": "Q2-lr-accs.pdf",
-        "scores": "Q2-lr-scores.json"
+        "scores": "Q2-lr-scores.json",
+        "feature_type": "pixel",
+        "pca_components": 50,
+        "downsample_size": 2,
+        "compare_all": false,
+        "grid_search": false
     }
 }

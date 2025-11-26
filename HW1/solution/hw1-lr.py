@@ -11,6 +11,7 @@ import copy
 
 import numpy as np
 from sklearn.decomposition import PCA
+from sklearn.discriminant_analysis import StandardScaler
 
 import utils
 
@@ -158,12 +159,16 @@ def apply_pca(X_train, X_valid, X_test, n_components=50):
     Fit PCA on X_train.
     Transform X_train, X_valid, X_test.
     """
+    # standardize data
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_valid = scaler.transform(X_valid)
+    X_test = scaler.transform(X_test)
     pca = PCA(n_components=n_components)
     X_train_pca = pca.fit_transform(X_train)
     X_valid_pca = pca.transform(X_valid)
     X_test_pca = pca.transform(X_test)
     return X_train_pca, X_valid_pca, X_test_pca
-
 
 def get_data(args, feature_type):
     # Load data (without bias initially)
