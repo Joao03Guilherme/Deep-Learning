@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 from matplotlib import pyplot as plt
+import pandas as pd
 
 import time
 import utils
@@ -16,7 +17,7 @@ import utils
 
 class FeedforwardNetwork(nn.Module):
     def __init__(
-            self, t, n_features, hidden_size, layers,
+            self, n_classes, n_features, hidden_size, layers,
             activation_type, dropout, **kwargs):
         """ Define a vanilla multiple-layer FFN with `layers` hidden layers 
         Args:
@@ -56,7 +57,7 @@ class FeedforwardNetwork(nn.Module):
             self.layers.append(self.dropout)
 
         # Output layer
-        self.output_layer = nn.Linear(hidden_size, t)
+        self.output_layer = nn.Linear(hidden_size, n_classes)
         
 
     def forward(self, x, **kwargs):
@@ -138,6 +139,479 @@ def plot(epochs, plottables, filename=None, ylim=None):
         plt.savefig(filename, bbox_inches='tight')
 
 
+def question22a():
+    """
+    Train a one-hidden-layer feedforward neural network for a varying number
+    of hidden units. For each width, perform a small grid search
+    over all combinations of the following hyperparameters: 
+    - 4 learning rates
+    - no dropout and dropout with p>0
+    - no l2 regularization and l2 regularization with some weight decay >0
+
+    We chose the Adam optimizer and ReLU activations for this exercise.
+    """
+
+    # Check for GPU availability
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+
+    hidden_unit_sizes = [16, 32, 64, 128, 256]
+    lr_values = [0.1, 0.01, 0.001, 0.0001]
+    dropout_values = [0.0, 0.5]
+    l2_values = [0.0, 0.01]
+    batch_size = 64
+    epochs = 30
+    optimizer = torch.optim.Adam
+    criterion = nn.CrossEntropyLoss()
+    activation = "relu"
+    number_of_layers = 1
+
+    data = utils.load_dataset('emnist-letters.npz')
+    dataset = utils.ClassificationDataset(data)
+    train_dataloader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=True, 
+        generator=torch.Generator().manual_seed(42),
+        num_workers=2, pin_memory=True if device.type == 'cuda' else False)
+    
+    # Move data to device once
+    train_X, train_y = dataset.X.to(device), dataset.y.to(device)
+    dev_X, dev_y = dataset.dev_X.to(device), dataset.dev_y.to(device)
+    test_X, test_y = dataset.test_X.to(device), dataset.test_y.to(device)
+
+    n_classes = torch.unique(dataset.y).shape[0]  # 26
+    n_feats = dataset.X.shape[1]
+
+    # Store results for all configurations
+    results = []
+    total_configs = len(hidden_unit_sizes) * len(lr_values) * len(dropout_values) * len(l2_values)
+    current_config = 0
+
+    for hidden_size in hidden_unit_sizes:
+        for lr in lr_values:
+            for dropout in dropout_values:
+                for l2 in l2_values:
+                    current_config += 1
+                    print(f"[{current_config}/{total_configs}] Training with hidden_size={hidden_size}, lr={lr}, dropout={dropout}, l2={l2}")
+
+                    model = FeedforwardNetwork(
+                        n_classes,
+                        n_feats,
+                        hidden_size,
+                        number_of_layers,
+                        activation,
+                        dropout
+                    ).to(device)
+
+                    optimizer_instance = optimizer(
+                        model.parameters(), lr=lr, weight_decay=l2
+                    )
+
+                    # training loop
+                    for epoch in range(epochs):
+                        model.train()
+                        for X_batch, y_batch in train_dataloader:
+                            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                            train_batch(X_batch, y_batch, model, optimizer_instance, criterion)
+                    
+                    model.eval()
+                    train_loss, train_acc = evaluate(model, train_X, train_y, criterion)
+                    val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
+                    
+                    print(f'Training accuracy: {train_acc:.4f}, Validation accuracy: {val_acc:.4f}')
+                    
+                    # Store results
+                    results.append({
+                        'hidden_size': hidden_size,
+                        'learning_rate': lr,
+                        'dropout': dropout,
+                        'l2_decay': l2,
+                        'train_loss': train_loss,
+                        'val_loss': val_loss,
+                        'train_accuracy': train_acc,
+                        'val_accuracy': val_acc
+                    })
+                    
+                    # Free up memory
+                    del model, optimizer_instance
+                    if device.type == 'cuda':
+                        torch.cuda.empty_cache()
+
+    # Convert to DataFrame
+    df = pd.DataFrame(results)
+    
+    # Find best configuration for each hidden size
+    best_configs = []
+    for hidden_size in hidden_unit_sizes:
+        subset = df[df['hidden_size'] == hidden_size]
+        best_idx = subset['val_accuracy'].idxmax()
+        best_configs.append(best_idx)
+    
+    df['best_for_width'] = False
+    df.loc[best_configs, 'best_for_width'] = True
+    
+    # Sort by hidden_size and then by val_accuracy
+    df = df.sort_values(['hidden_size', 'val_accuracy'], ascending=[True, False])
+    
+    # Create output directory and save CSV
+    results_dir = os.path.join("Results", "FFN_results")
+    os.makedirs(results_dir, exist_ok=True)
+    
+    csv_path = os.path.join(results_dir, 'question22a_results.csv')
+    df.to_csv(csv_path, index=False, float_format='%.4f')
+    
+    print(f"\nResults saved to: {csv_path}")
+    print("\nBest configuration for each hidden size:")
+    best_df = df[df['best_for_width'] == True]
+    print(best_df.to_string(index=False))
+
+
+def question22b():
+    """
+    Plot the training loss and the validation accuracy over epochs for the best 
+    configuration found in question 2.2.a
+    """
+
+    # Check for GPU availability
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+
+    batch_size = 64
+    epochs = 30
+    optimizer = torch.optim.Adam
+    criterion = nn.CrossEntropyLoss()
+    activation = "relu"
+    number_of_layers = 1
+    # Try to load best config from question22a CSV
+    results_dir = os.path.join("Results", "FFN_results")
+    csv_path = os.path.join(results_dir, 'question22a_results.csv')
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        # Pick the single best row overall by validation accuracy
+        best_row = df.loc[df['val_accuracy'].idxmax()]
+        hidden_size = int(best_row['hidden_size'])
+        lr = float(best_row['learning_rate'])
+        dropout = float(best_row['dropout'])
+        l2 = float(best_row['l2_decay'])
+        print(f"Loaded best config from CSV: hidden={hidden_size}, lr={lr}, dropout={dropout}, l2={l2}")
+    else:
+        # Fallback example values if CSV not found
+        hidden_size = 16
+        lr = 0.001
+        dropout = 0.5
+        l2 = 0.01
+        print("question22a_results.csv not found. Using example fallback config.")
+
+    data = utils.load_dataset('emnist-letters.npz')
+    dataset = utils.ClassificationDataset(data)
+    train_dataloader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=True, 
+        generator=torch.Generator().manual_seed(42),
+        num_workers=2, pin_memory=True if device.type == 'cuda' else False)
+    
+    # Move data to device once
+    train_X, train_y = dataset.X.to(device), dataset.y.to(device)
+    dev_X, dev_y = dataset.dev_X.to(device), dataset.dev_y.to(device)
+    test_X, test_y = dataset.test_X.to(device), dataset.test_y.to(device)
+
+    n_classes = torch.unique(dataset.y).shape[0]  # 26
+    n_feats = dataset.X.shape[1]
+
+    model = FeedforwardNetwork(
+                        n_classes,
+                        n_feats,
+                        hidden_size,
+                        number_of_layers,
+                        activation,
+                        dropout
+                    ).to(device)
+    
+    optimizer_instance = optimizer(
+                        model.parameters(), lr=lr, weight_decay=l2
+                    )
+    
+    # Track metrics for plotting
+    train_losses, train_accs = [], []
+    val_losses, val_accs = [], []
+    plot_epochs = torch.arange(1, epochs + 1)
+
+    for epoch in range(epochs):
+        model.train()
+        epoch_train_losses = []
+        for X_batch, y_batch in train_dataloader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            loss = train_batch(X_batch, y_batch, model, optimizer_instance, criterion)
+            epoch_train_losses.append(loss)
+        
+        model.eval()
+        # Aggregate training loss over minibatches and compute full-set metrics
+        epoch_train_loss = torch.tensor(epoch_train_losses).mean().item()
+        train_loss, train_acc = evaluate(model, train_X, train_y, criterion)
+        val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
+
+        train_losses.append(epoch_train_loss)
+        train_accs.append(train_acc)
+        val_losses.append(val_loss)
+        val_accs.append(val_acc)
+
+        print(f"Epoch {epoch+1}/{epochs} - "
+              f"Train Loss: {epoch_train_loss:.4f}, "
+              f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+
+    model.eval()
+    final_test_loss, final_test_acc = evaluate(model, test_X, test_y, criterion)
+    print(f"Final Test Loss: {final_test_loss:.4f}, Final Test Accuracy: {final_test_acc:.4f}")
+
+    # Plot and save
+    results_dir = os.path.join("Results", "FFN_results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    config = (
+        f"batch-{batch_size}-lr-{lr}-epochs-{epochs}-"
+        f"hidden-{hidden_size}-dropout-{dropout}-l2-{l2}-"
+        f"layers-{number_of_layers}-act-{activation}-opt-adam"
+    )
+
+    plot(plot_epochs, {"Train Loss": train_losses, "Valid Loss": val_losses},
+         filename=os.path.join(results_dir, f"q22b-training-loss-{config}.pdf"))
+    plot(plot_epochs, {"Valid Accuracy": val_accs},
+         filename=os.path.join(results_dir, f"q22b-validation-accuracy-{config}.pdf"), ylim=(0, 1))
+    
+def question22c():
+    """
+    Produce a plot of the final training accuracy as a function of hidden-layer width.
+    """
+
+    # Open the CSV file generated in question 2.2.a
+    results_dir = os.path.join("Results", "FFN_results")
+    csv_path = os.path.join(results_dir, 'question22a_results.csv')
+    df = pd.read_csv(csv_path)
+
+    # Filter for best configurations only per hidden size
+    best_df = df[df['best_for_width'] == True]
+
+    # Plot
+    plt.clf()
+    plt.plot(best_df['hidden_size'], best_df['train_accuracy'], marker='o')
+    plt.xlabel('Hidden Layer Width')
+    plt.ylabel('Final Training Accuracy')
+    plt.title('Final Training Accuracy vs Hidden Layer Width')
+    plt.xscale('log', base=2)
+    plt.xticks(best_df['hidden_size'])
+    plt.ylim(0, 1)
+    plt.grid(True)
+    plot_path = os.path.join(results_dir, 'question22c-training-accuracy-vs-width.pdf')
+    plt.savefig(plot_path, bbox_inches='tight')
+
+def question23a():
+    """
+    Present a table with the highest validation accuracy during training for each depth
+    """
+
+    hidden_size = 32
+    hidden_layers = [1, 3, 5, 7, 9]
+    # Load best hyperparameters for this hidden_size from question22a CSV
+    results_dir = os.path.join("Results", "FFN_results")
+    csv_path = os.path.join(results_dir, 'question22a_results.csv')
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        best_for_width = df[(df['hidden_size'] == hidden_size) & (df['best_for_width'] == True)]
+        if not best_for_width.empty:
+            best_row = best_for_width.iloc[0]
+            lr = float(best_row['learning_rate'])
+            dropout = float(best_row['dropout'])
+            l2 = float(best_row['l2_decay'])
+            print(f"Loaded best config for hidden_size={hidden_size} from CSV: lr={lr}, dropout={dropout}, l2={l2}")
+    optimizer = torch.optim.Adam
+    criterion = nn.CrossEntropyLoss()
+    activation = "relu"
+    epochs = 30
+    batch_size = 64
+
+    # Use CUDA if available
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+
+    # Load data
+    data = utils.load_dataset('emnist-letters.npz')
+    dataset = utils.ClassificationDataset(data)
+    train_dataloader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=True, 
+        generator=torch.Generator().manual_seed(42),
+        num_workers=2, pin_memory=True if torch.cuda.is_available() else False)
+    
+    # Move data to device once
+    train_X, train_y = dataset.X.to(device), dataset.y.to(device)
+    dev_X, dev_y = dataset.dev_X.to(device), dataset.dev_y.to(device)
+
+    n_classes = torch.unique(dataset.y).shape[0]  # 26
+    n_feats = dataset.X.shape[1]
+
+    results = []
+    for layer_size in hidden_layers:
+        print(f"Training with {layer_size} hidden layers")
+        model = FeedforwardNetwork(
+            n_classes,
+            n_feats,
+            hidden_size,
+            layer_size,
+            activation,
+            dropout
+        ).to(device)
+
+        optimizer_instance = optimizer(
+            model.parameters(), lr=lr, weight_decay=l2
+        )
+
+        best_val_acc = 0.0
+
+        for epoch in range(epochs):
+            model.train()
+            for X_batch, y_batch in train_dataloader:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                train_batch(X_batch, y_batch, model, optimizer_instance, criterion)
+
+            model.eval()
+            val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
+            best_val_acc = max(best_val_acc, val_acc)
+
+        train_loss, train_acc = evaluate(model, train_X, train_y, criterion)
+        val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
+
+        results.append({
+            'hidden_layers': layer_size,
+            'best_val_accuracy': best_val_acc,
+            'train_accuracy': train_acc,
+            'val_accuracy': val_acc,
+            'train_loss': train_loss,
+            'val_loss': val_loss
+        })
+        print(f"Best validation accuracy for {layer_size} layers: {best_val_acc:.4f}")
+
+    # Convert to DataFrame
+    df = pd.DataFrame(results)
+    results_dir = os.path.join("Results", "FFN_results")
+    os.makedirs(results_dir, exist_ok=True)
+    csv_path = os.path.join(results_dir, 'question23a_results.csv')
+    df.to_csv(csv_path, index=False, float_format='%.4f')
+    print(f"\nResults saved to: {csv_path}")
+
+
+def question23b():
+    """
+    Plot the training loss curve and the validation accuracy curve over the
+    30 epochs for the best depth found in question 23a.
+    """
+
+    # Open df generated in question 23a
+    results_dir = os.path.join("Results", "FFN_results")
+    csv_path = os.path.join(results_dir, 'question23a_results.csv')
+    df = pd.read_csv(csv_path)
+
+    # Find best depth
+    best_row = df.loc[df['best_val_accuracy'].idxmax()]
+    best_depth = best_row['hidden_layers']
+
+    hidden_size = 32
+    # Load best hyperparameters for this hidden_size from question22a CSV
+    results_dir = os.path.join("Results", "FFN_results")
+    csv_path = os.path.join(results_dir, 'question22a_results.csv')
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        best_for_width = df[(df['hidden_size'] == hidden_size) & (df['best_for_width'] == True)]
+        if not best_for_width.empty:
+            best_row = best_for_width.iloc[0]
+            lr = float(best_row['learning_rate'])
+            dropout = float(best_row['dropout'])
+            l2 = float(best_row['l2_decay'])
+            print(f"Loaded best config for hidden_size={hidden_size} from CSV: lr={lr}, dropout={dropout}, l2={l2}")
+    optimizer = torch.optim.Adam
+    criterion = nn.CrossEntropyLoss()
+    activation = "relu"
+    epochs = 30
+    batch_size = 64
+
+    # Use CUDA if available
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+
+    # Load data
+    data = utils.load_dataset('emnist-letters.npz')
+    dataset = utils.ClassificationDataset(data)
+    train_dataloader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=True, 
+        generator=torch.Generator().manual_seed(42),
+        num_workers=2, pin_memory=True if torch.cuda.is_available() else False)
+    # Move data to device once
+    train_X, train_y = dataset.X.to(device), dataset.y.to(device)
+    dev_X, dev_y = dataset.dev_X.to(device), dataset.dev_y.to(device)
+
+    n_classes = torch.unique(dataset.y).shape[0]  # 26
+    n_feats = dataset.X.shape[1]
+
+    model = FeedforwardNetwork(
+        n_classes,
+        n_feats,
+        hidden_size,
+        int(best_depth),
+        activation,
+        dropout
+    ).to(device)
+
+    optimizer_instance = optimizer(
+        model.parameters(), lr=lr, weight_decay=l2
+    )
+
+    train_losses, val_losses = [], []
+    val_accs = []
+
+    for epoch in range(epochs):
+        model.train()
+        epoch_train_losses = []
+        for X_batch, y_batch in train_dataloader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            loss = train_batch(X_batch, y_batch, model, optimizer_instance, criterion)
+            epoch_train_losses.append(loss)
+        
+        model.eval()
+        train_loss, train_acc = evaluate(model, train_X, train_y, criterion)
+        val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
+
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+        val_accs.append(val_acc)
+
+        print(f"Epoch {epoch+1}/{epochs} - "
+              f"Train Loss: {train_loss:.4f}, "
+              f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+        
+    # Plot using the plot function
+    plot_epochs = torch.arange(1, epochs + 1)
+    plot(plot_epochs, {"Train Loss": train_losses, "Valid Loss": val_losses},
+         filename=os.path.join(results_dir, f"q23b-training-loss-depth-{int(best_depth)}.pdf"))
+
+def question23c():
+    """
+    Create a plot of training accuracy as a function of depth based on the results from question 23a.
+    """ 
+
+    # Import the CSV file generated in question 23a
+    results_dir = os.path.join("Results", "FFN_results")
+    csv_path = os.path.join(results_dir, 'question23a_results.csv')
+    df = pd.read_csv(csv_path)
+
+    # Plot
+    plt.clf()
+    plt.plot(df['hidden_layers'], df['train_accuracy'], marker='o')
+    plt.xlabel('Number of Hidden Layers (Depth)')
+    plt.ylabel('Final Training Accuracy')
+    plt.title('Final Training Accuracy vs Network Depth')
+    plt.xscale('log', base=2)
+    plt.xticks(df['hidden_layers'])
+    plt.ylim(0, 1)
+    plt.grid(True)
+    plot_path = os.path.join(results_dir, 'question23c-training-accuracy-vs-depth.pdf')
+    plt.savefig(plot_path, bbox_inches='tight')
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-epochs', default=30, type=int,
@@ -160,6 +634,8 @@ def main():
 
     utils.configure_seed(seed=42)
 
+
+    """
     data = utils.load_dataset(opt.data_path)
     dataset = utils.ClassificationDataset(data)
     train_dataloader = DataLoader(
@@ -268,7 +744,14 @@ def main():
     print(f"Best Validation Accuracy: {max(valid_accs):.4f}")
     val_accuracy = { "Valid Accuracy": valid_accs }
     plot(plot_epochs, val_accuracy, filename=os.path.join(results_dir, f'{opt.model}-validation-accuracy-{config}.pdf'))
+    """
 
+    question22a()
+    question22b()
+    question22c()
+    question23a()
+    question23b()
+    question23c()
 
 if __name__ == '__main__':
     main()
