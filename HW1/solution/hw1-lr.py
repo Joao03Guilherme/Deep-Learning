@@ -170,6 +170,19 @@ def apply_pca(X_train, X_valid, X_test, n_components=50):
     X_test_pca = pca.transform(X_test)
     return X_train_pca, X_valid_pca, X_test_pca
 
+def apply_umap(X_train, X_valid, X_test, n_components=50):
+    """
+    4. UMAP
+    Fit UMAP on X_train.
+    Transform X_train, X_valid, X_test.
+    """
+    import umap
+    reducer = umap.UMAP(n_components=n_components, random_state=42)
+    X_train_umap = reducer.fit_transform(X_train)
+    X_valid_umap = reducer.transform(X_valid)
+    X_test_umap = reducer.transform(X_test)
+    return X_train_umap, X_valid_umap, X_test_umap
+
 def get_data(args, feature_type):
     # Load data (without bias initially)
     data = utils.load_dataset(args.data_path, bias=False)
@@ -190,6 +203,8 @@ def get_data(args, feature_type):
         X_test = get_downsampled(X_test, pool_size=args.downsample_size)
     elif feature_type == 'pca':
         X_train, X_valid, X_test = apply_pca(X_train, X_valid, X_test, n_components=args.pca_components)
+    elif feature_type == 'umap':
+        X_train, X_valid, X_test = apply_umap(X_train, X_valid, X_test, n_components=args.pca_components)
         
     # Add bias
     X_train = add_bias(X_train)
@@ -254,7 +269,7 @@ def train_and_eval(args, X_train, y_train, X_valid, y_valid, X_test, y_test, nam
 def run_grid_search(args, results_dir):
     lrs = [0.01, 0.001, 0.0001]
     l2s = [0.001, 0.0001]
-    feature_types = ['pixel', 'projections', 'downsample', 'pca']
+    feature_types = ['pixel', 'projections', 'downsample', 'pca', 'umap']
     
     results = []
     
@@ -311,7 +326,8 @@ def main(args):
             ('Pixel', 'pixel'),
             ('Projections', 'projections'),
             ('Downsample', 'downsample'),
-            ('PCA', 'pca')
+            ('PCA', 'pca'),
+            ('UMAP', 'umap')
         ]
         
         results = []
@@ -429,7 +445,7 @@ if __name__ == '__main__':
     parser.add_argument("--scores", default="Q2-lr-scores.json")
     
     # Feature representation arguments
-    parser.add_argument("--feature-type", choices=['pixel', 'projections', 'downsample', 'pca'], default='pixel',
+    parser.add_argument("--feature-type", choices=['pixel', 'projections', 'downsample', 'pca', 'umap'], default='pixel',
                         help="Type of feature representation to use.")
     parser.add_argument("--pca-components", type=int, default=50, help="Number of components for PCA.")
     parser.add_argument("--downsample-size", type=int, default=2, help="Pool size for downsampling (e.g. 2 for 14x14).")
