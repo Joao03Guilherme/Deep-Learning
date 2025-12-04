@@ -1,0 +1,2 @@
+hidden_size,learning_rate,dropout,l2_decay,train_loss,val_loss,train_accuracy,val_accuracy
+16,0.1000,0.0000,0.0000,3.2256,3.5735,0.0579,0.0568

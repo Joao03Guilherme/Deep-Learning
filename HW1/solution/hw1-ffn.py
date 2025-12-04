@@ -160,7 +160,7 @@ def question22a():
     dropout_values = [0.0, 0.5]
     l2_values = [0.0, 0.01]
     batch_size = 64
-    epochs = 30
+    epochs_count = 30
     optimizer = torch.optim.Adam
     criterion = nn.CrossEntropyLoss()
     activation = "relu"
@@ -176,21 +176,48 @@ def question22a():
     # Move data to device once
     train_X, train_y = dataset.X.to(device), dataset.y.to(device)
     dev_X, dev_y = dataset.dev_X.to(device), dataset.dev_y.to(device)
-    test_X, test_y = dataset.test_X.to(device), dataset.test_y.to(device)
+    # test_X, test_y = dataset.test_X.to(device), dataset.test_y.to(device)
 
     n_classes = torch.unique(dataset.y).shape[0]  # 26
     n_feats = dataset.X.shape[1]
 
-    # Store results for all configurations
-    results = []
+    # Create output directory
+    results_dir = os.path.join("Results", "FFN_results")
+    os.makedirs(results_dir, exist_ok=True)
+    csv_path = os.path.join(results_dir, 'question22a_results.csv')
+    
+    # Load existing results if checkpoint exists
+    if os.path.exists(csv_path):
+        df_existing = pd.read_csv(csv_path)
+        results = df_existing.to_dict('records')
+        print(f"Loaded {len(results)} existing results from checkpoint.")
+        completed_configs = set(
+            (r['hidden_size'], r['learning_rate'], r['dropout'], r['l2_decay']) 
+            for r in results
+        )
+    else:
+        results = []
+        completed_configs = set()
+        print("No checkpoint found. Starting fresh.")
+
     total_configs = len(hidden_unit_sizes) * len(lr_values) * len(dropout_values) * len(l2_values)
     current_config = 0
+
+    # Epoch range for training logic from first file: 0 to epochs
+    epochs_range = torch.arange(0, epochs_count + 1)
 
     for hidden_size in hidden_unit_sizes:
         for lr in lr_values:
             for dropout in dropout_values:
                 for l2 in l2_values:
                     current_config += 1
+                    config_key = (hidden_size, lr, dropout, l2)
+                    
+                    # Skip if already completed
+                    if config_key in completed_configs:
+                        print(f"[{current_config}/{total_configs}] Skipping (already completed): hidden_size={hidden_size}, lr={lr}, dropout={dropout}, l2={l2}")
+                        continue
+                    
                     print(f"[{current_config}/{total_configs}] Training with hidden_size={hidden_size}, lr={lr}, dropout={dropout}, l2={l2}")
 
                     model = FeedforwardNetwork(
@@ -206,30 +233,64 @@ def question22a():
                         model.parameters(), lr=lr, weight_decay=l2
                     )
 
+                    # Initial Evaluation (Epoch 0)
+                    model.eval()
+                    # We only strictly need val accuracy for this question, but good to have
+                    initial_train_loss, initial_train_acc = evaluate(model, train_X, train_y, criterion)
+                    initial_val_loss, initial_val_acc = evaluate(model, dev_X, dev_y, criterion)
+                    
+                    # Store current run metrics to find best val acc over epochs if needed, 
+                    # but here we just need the final result or best result?
+                    # The question asks for grid search. Usually we take the best validation accuracy seen.
+                    # Or final. Let's track best_val_acc seen during training.
+                    best_val_acc_run = initial_val_acc
+                    final_train_acc = initial_train_acc
+                    final_train_loss = initial_train_loss
+                    final_val_loss = initial_val_loss
+                    
                     # training loop
-                    for epoch in range(epochs):
+                    # Corresponds to: for ii in epochs[1:]:
+                    for epoch in epochs_range[1:]:
                         model.train()
+                        epoch_train_losses = []
                         for X_batch, y_batch in train_dataloader:
                             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-                            train_batch(X_batch, y_batch, model, optimizer_instance, criterion)
+                            loss = train_batch(X_batch, y_batch, model, optimizer_instance, criterion)
+                            epoch_train_losses.append(loss)
                     
-                    model.eval()
-                    train_loss, train_acc = evaluate(model, train_X, train_y, criterion)
-                    val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
+                        model.eval()
+                        # We re-evaluate full train set to be consistent with file 1 logic
+                        # epoch_train_loss = torch.tensor(epoch_train_losses).mean().item()
+                        train_loss, train_acc = evaluate(model, train_X, train_y, criterion)
+                        val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
+                        
+                        if val_acc > best_val_acc_run:
+                            best_val_acc_run = val_acc
+                        
+                        final_train_acc = train_acc
+                        final_train_loss = train_loss
+                        final_val_loss = val_loss
+                        final_val_acc = val_acc # Tracking last epoch val acc as well
+
+                    print(f'Final Training accuracy: {final_train_acc:.4f}, Best Validation accuracy: {best_val_acc_run:.4f}')
                     
-                    print(f'Training accuracy: {train_acc:.4f}, Validation accuracy: {val_acc:.4f}')
-                    
-                    # Store results
-                    results.append({
+                    # Store results - storing best_val_acc found during training for selection
+                    # storing final train metrics for plotting vs width
+                    result_dict = {
                         'hidden_size': hidden_size,
                         'learning_rate': lr,
                         'dropout': dropout,
                         'l2_decay': l2,
-                        'train_loss': train_loss,
-                        'val_loss': val_loss,
-                        'train_accuracy': train_acc,
-                        'val_accuracy': val_acc
-                    })
+                        'train_loss': final_train_loss,
+                        'val_loss': final_val_loss,
+                        'train_accuracy': final_train_acc,
+                        'val_accuracy': best_val_acc_run # Using best val acc for model selection
+                    }
+                    results.append(result_dict)
+                    
+                    # Save checkpoint after each configuration
+                    df_checkpoint = pd.DataFrame(results)
+                    df_checkpoint.to_csv(csv_path, index=False, float_format='%.4f')
                     
                     # Free up memory
                     del model, optimizer_instance
@@ -252,18 +313,13 @@ def question22a():
     # Sort by hidden_size and then by val_accuracy
     df = df.sort_values(['hidden_size', 'val_accuracy'], ascending=[True, False])
     
-    # Create output directory and save CSV
-    results_dir = os.path.join("Results", "FFN_results")
-    os.makedirs(results_dir, exist_ok=True)
-    
-    csv_path = os.path.join(results_dir, 'question22a_results.csv')
+    # Save final results
     df.to_csv(csv_path, index=False, float_format='%.4f')
     
-    print(f"\nResults saved to: {csv_path}")
+    print(f"\nFinal results saved to: {csv_path}")
     print("\nBest configuration for each hidden size:")
     best_df = df[df['best_for_width'] == True]
     print(best_df.to_string(index=False))
-
 
 def question22b():
     """
@@ -276,11 +332,12 @@ def question22b():
     print(f"Using device: {device}")
 
     batch_size = 64
-    epochs = 30
+    epochs_count = 30
     optimizer = torch.optim.Adam
     criterion = nn.CrossEntropyLoss()
     activation = "relu"
     number_of_layers = 1
+    
     # Try to load best config from question22a CSV
     results_dir = os.path.join("Results", "FFN_results")
     csv_path = os.path.join(results_dir, 'question22a_results.csv')
@@ -330,11 +387,27 @@ def question22b():
                     )
     
     # Track metrics for plotting
-    train_losses, train_accs = [], []
-    val_losses, val_accs = [], []
-    plot_epochs = torch.arange(1, epochs + 1)
+    train_losses = []
+    val_accs = []
+    
+    # Epochs definition from file 1
+    epochs = torch.arange(0, epochs_count + 1)
+    
+    # Initial evaluation (Epoch 0)
+    model.eval()
+    # Note: File 1 computes initial train loss and val acc
+    # It plots "Train Loss" (y-axis) vs Epoch (x-axis)
+    # It calculates mean of batch losses for training epochs > 0, 
+    # but for epoch 0 it uses full batch evaluation loss.
+    # The first file appended initial_train_loss to train_losses
+    initial_train_loss, _ = evaluate(model, train_X, train_y, criterion)
+    _, initial_val_acc = evaluate(model, dev_X, dev_y, criterion)
+    
+    train_losses.append(initial_train_loss)
+    val_accs.append(initial_val_acc)
+    print('initial val acc: {:.4f}'.format(initial_val_acc))
 
-    for epoch in range(epochs):
+    for ii in epochs[1:]:
         model.train()
         epoch_train_losses = []
         for X_batch, y_batch in train_dataloader:
@@ -343,19 +416,17 @@ def question22b():
             epoch_train_losses.append(loss)
         
         model.eval()
-        # Aggregate training loss over minibatches and compute full-set metrics
+        # File 1 logic: epoch_train_loss = torch.tensor(epoch_train_losses).mean().item()
         epoch_train_loss = torch.tensor(epoch_train_losses).mean().item()
-        train_loss, train_acc = evaluate(model, train_X, train_y, criterion)
-        val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
+        # And calculates val acc
+        _, val_acc = evaluate(model, dev_X, dev_y, criterion)
 
         train_losses.append(epoch_train_loss)
-        train_accs.append(train_acc)
-        val_losses.append(val_loss)
         val_accs.append(val_acc)
 
-        print(f"Epoch {epoch+1}/{epochs} - "
+        print(f"Epoch {ii}/{epochs_count} - "
               f"Train Loss: {epoch_train_loss:.4f}, "
-              f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+              f"Val Acc: {val_acc:.4f}")
 
     model.eval()
     final_test_loss, final_test_acc = evaluate(model, test_X, test_y, criterion)
@@ -366,15 +437,19 @@ def question22b():
     os.makedirs(results_dir, exist_ok=True)
 
     config = (
-        f"batch-{batch_size}-lr-{lr}-epochs-{epochs}-"
+        f"batch-{batch_size}-lr-{lr}-epochs-{epochs_count}-"
         f"hidden-{hidden_size}-dropout-{dropout}-l2-{l2}-"
         f"layers-{number_of_layers}-act-{activation}-opt-adam"
     )
 
-    plot(plot_epochs, {"Train Loss": train_losses, "Valid Loss": val_losses},
+    # Plotting using the provided plot function signature
+    # Plot training loss
+    plot(epochs, {"Train Loss": train_losses},
          filename=os.path.join(results_dir, f"q22b-training-loss-{config}.pdf"))
-    plot(plot_epochs, {"Valid Accuracy": val_accs},
-         filename=os.path.join(results_dir, f"q22b-validation-accuracy-{config}.pdf"), ylim=(0, 1))
+    
+    # Plot validation accuracy
+    plot(epochs, {"Valid Accuracy": val_accs},
+         filename=os.path.join(results_dir, f"q22b-validation-accuracy-{config}.pdf"))
     
 def question22c():
     """
@@ -391,14 +466,19 @@ def question22c():
 
     # Plot
     plt.clf()
-    plt.plot(best_df['hidden_size'], best_df['train_accuracy'], marker='o')
+    # Sort just in case
+    best_df = best_df.sort_values('hidden_size')
+    
+    plt.plot(best_df['hidden_size'], best_df['train_accuracy'], marker='o', label='Final Train Accuracy')
     plt.xlabel('Hidden Layer Width')
     plt.ylabel('Final Training Accuracy')
     plt.title('Final Training Accuracy vs Hidden Layer Width')
+    # Use log scale base 2 as in previous code? File 1 doesn't specify but it's reasonable for 16,32...
     plt.xscale('log', base=2)
-    plt.xticks(best_df['hidden_size'])
+    plt.xticks(best_df['hidden_size'], labels=best_df['hidden_size'].astype(int))
     plt.ylim(0, 1)
     plt.grid(True)
+    plt.legend()
     plot_path = os.path.join(results_dir, 'question22c-training-accuracy-vs-width.pdf')
     plt.savefig(plot_path, bbox_inches='tight')
 
@@ -421,10 +501,11 @@ def question23a():
             dropout = float(best_row['dropout'])
             l2 = float(best_row['l2_decay'])
             print(f"Loaded best config for hidden_size={hidden_size} from CSV: lr={lr}, dropout={dropout}, l2={l2}")
+    
     optimizer = torch.optim.Adam
     criterion = nn.CrossEntropyLoss()
     activation = "relu"
-    epochs = 30
+    epochs_count = 30
     batch_size = 64
 
     # Use CUDA if available
@@ -447,6 +528,8 @@ def question23a():
     n_feats = dataset.X.shape[1]
 
     results = []
+    epochs = torch.arange(0, epochs_count + 1)
+
     for layer_size in hidden_layers:
         print(f"Training with {layer_size} hidden layers")
         model = FeedforwardNetwork(
@@ -462,28 +545,34 @@ def question23a():
             model.parameters(), lr=lr, weight_decay=l2
         )
 
-        best_val_acc = 0.0
+        # Initial eval
+        model.eval()
+        _, initial_val_acc = evaluate(model, dev_X, dev_y, criterion)
+        best_val_acc = initial_val_acc
+        
+        # Track final train acc for report/table? Question says "highest validation accuracy"
+        # We also need train accuracy for question 23c probably.
+        _, initial_train_acc = evaluate(model, train_X, train_y, criterion)
+        final_train_acc = initial_train_acc
 
-        for epoch in range(epochs):
+        for ii in epochs[1:]:
             model.train()
             for X_batch, y_batch in train_dataloader:
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 train_batch(X_batch, y_batch, model, optimizer_instance, criterion)
 
             model.eval()
-            val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
+            _, val_acc = evaluate(model, dev_X, dev_y, criterion)
             best_val_acc = max(best_val_acc, val_acc)
-
-        train_loss, train_acc = evaluate(model, train_X, train_y, criterion)
-        val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
-
+            
+            # Update final train acc tracking
+            _, train_acc = evaluate(model, train_X, train_y, criterion)
+            final_train_acc = train_acc
+            
         results.append({
             'hidden_layers': layer_size,
             'best_val_accuracy': best_val_acc,
-            'train_accuracy': train_acc,
-            'val_accuracy': val_acc,
-            'train_loss': train_loss,
-            'val_loss': val_loss
+            'train_accuracy': final_train_acc, # using final training accuracy
         })
         print(f"Best validation accuracy for {layer_size} layers: {best_val_acc:.4f}")
 
@@ -509,30 +598,30 @@ def question23b():
 
     # Find best depth
     best_row = df.loc[df['best_val_accuracy'].idxmax()]
-    best_depth = best_row['hidden_layers']
+    best_depth = int(best_row['hidden_layers'])
+    print(f"Best depth found: {best_depth}")
 
     hidden_size = 32
     # Load best hyperparameters for this hidden_size from question22a CSV
-    results_dir = os.path.join("Results", "FFN_results")
-    csv_path = os.path.join(results_dir, 'question22a_results.csv')
-    if os.path.exists(csv_path):
-        df = pd.read_csv(csv_path)
-        best_for_width = df[(df['hidden_size'] == hidden_size) & (df['best_for_width'] == True)]
+    csv_path_22a = os.path.join(results_dir, 'question22a_results.csv')
+    if os.path.exists(csv_path_22a):
+        df_22a = pd.read_csv(csv_path_22a)
+        best_for_width = df_22a[(df_22a['hidden_size'] == hidden_size) & (df_22a['best_for_width'] == True)]
         if not best_for_width.empty:
-            best_row = best_for_width.iloc[0]
-            lr = float(best_row['learning_rate'])
-            dropout = float(best_row['dropout'])
-            l2 = float(best_row['l2_decay'])
+            best_row_config = best_for_width.iloc[0]
+            lr = float(best_row_config['learning_rate'])
+            dropout = float(best_row_config['dropout'])
+            l2 = float(best_row_config['l2_decay'])
             print(f"Loaded best config for hidden_size={hidden_size} from CSV: lr={lr}, dropout={dropout}, l2={l2}")
+    
     optimizer = torch.optim.Adam
     criterion = nn.CrossEntropyLoss()
     activation = "relu"
-    epochs = 30
+    epochs_count = 30
     batch_size = 64
 
     # Use CUDA if available
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
 
     # Load data
     data = utils.load_dataset('emnist-letters.npz')
@@ -552,7 +641,7 @@ def question23b():
         n_classes,
         n_feats,
         hidden_size,
-        int(best_depth),
+        best_depth,
         activation,
         dropout
     ).to(device)
@@ -561,10 +650,18 @@ def question23b():
         model.parameters(), lr=lr, weight_decay=l2
     )
 
-    train_losses, val_losses = [], []
+    train_losses = []
     val_accs = []
+    epochs = torch.arange(0, epochs_count + 1)
+    
+    # Epoch 0
+    model.eval()
+    initial_train_loss, _ = evaluate(model, train_X, train_y, criterion)
+    _, initial_val_acc = evaluate(model, dev_X, dev_y, criterion)
+    train_losses.append(initial_train_loss)
+    val_accs.append(initial_val_acc)
 
-    for epoch in range(epochs):
+    for ii in epochs[1:]:
         model.train()
         epoch_train_losses = []
         for X_batch, y_batch in train_dataloader:
@@ -573,21 +670,23 @@ def question23b():
             epoch_train_losses.append(loss)
         
         model.eval()
-        train_loss, train_acc = evaluate(model, train_X, train_y, criterion)
-        val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
+        epoch_train_loss = torch.tensor(epoch_train_losses).mean().item()
+        _, val_acc = evaluate(model, dev_X, dev_y, criterion)
 
-        train_losses.append(train_loss)
-        val_losses.append(val_loss)
+        train_losses.append(epoch_train_loss)
         val_accs.append(val_acc)
 
-        print(f"Epoch {epoch+1}/{epochs} - "
-              f"Train Loss: {train_loss:.4f}, "
-              f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+        print(f"Epoch {ii}/{epochs_count} - "
+              f"Train Loss: {epoch_train_loss:.4f}, "
+              f"Val Acc: {val_acc:.4f}")
         
     # Plot using the plot function
-    plot_epochs = torch.arange(1, epochs + 1)
-    plot(plot_epochs, {"Train Loss": train_losses, "Valid Loss": val_losses},
-         filename=os.path.join(results_dir, f"q23b-training-loss-depth-{int(best_depth)}.pdf"))
+    config = f"depth-{best_depth}-hidden-{hidden_size}"
+    plot(epochs, {"Train Loss": train_losses},
+         filename=os.path.join(results_dir, f"q23b-training-loss-{config}.pdf"))
+    
+    plot(epochs, {"Valid Accuracy": val_accs},
+         filename=os.path.join(results_dir, f"q23b-validation-accuracy-{config}.pdf"))
 
 def question23c():
     """
@@ -601,14 +700,21 @@ def question23c():
 
     # Plot
     plt.clf()
-    plt.plot(df['hidden_layers'], df['train_accuracy'], marker='o')
+    # Sort by layers
+    df = df.sort_values('hidden_layers')
+    
+    plt.plot(df['hidden_layers'], df['train_accuracy'], marker='o', label='Final Train Accuracy')
     plt.xlabel('Number of Hidden Layers (Depth)')
     plt.ylabel('Final Training Accuracy')
     plt.title('Final Training Accuracy vs Network Depth')
-    plt.xscale('log', base=2)
+    # Use log scale or linear? Depth 1,3,5,7,9 is linear.
+    # Code previously used log base 2, but these are linear steps. 
+    # Let's check visually: 1,3,5,7,9. Linear scale is fine.
+    # plt.xscale('log', base=2) 
     plt.xticks(df['hidden_layers'])
     plt.ylim(0, 1)
     plt.grid(True)
+    plt.legend()
     plot_path = os.path.join(results_dir, 'question23c-training-accuracy-vs-depth.pdf')
     plt.savefig(plot_path, bbox_inches='tight')
 
