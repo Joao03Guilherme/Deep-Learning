@@ -310,9 +310,6 @@ def question22a():
     df['best_for_width'] = False
     df.loc[best_configs, 'best_for_width'] = True
     
-    # Sort by hidden_size and then by val_accuracy
-    df = df.sort_values(['hidden_size', 'val_accuracy'], ascending=[True, False])
-    
     # Save final results
     df.to_csv(csv_path, index=False, float_format='%.4f')
     
@@ -445,11 +442,11 @@ def question22b():
     # Plotting using the provided plot function signature
     # Plot training loss
     plot(epochs, {"Train Loss": train_losses},
-         filename=os.path.join(results_dir, f"q22b-training-loss-{config}.pdf"))
+         filename=os.path.join(results_dir, f"q22b-training-loss-{config}.eps"))
     
     # Plot validation accuracy
     plot(epochs, {"Valid Accuracy": val_accs},
-         filename=os.path.join(results_dir, f"q22b-validation-accuracy-{config}.pdf"))
+         filename=os.path.join(results_dir, f"q22b-validation-accuracy-{config}.eps"))
     
 def question22c():
     """
@@ -479,7 +476,7 @@ def question22c():
     plt.ylim(0, 1)
     plt.grid(True)
     plt.legend()
-    plot_path = os.path.join(results_dir, 'question22c-training-accuracy-vs-width.pdf')
+    plot_path = os.path.join(results_dir, 'question22c-training-accuracy-vs-width.eps')
     plt.savefig(plot_path, bbox_inches='tight')
 
 def question23a():
@@ -680,13 +677,16 @@ def question23b():
               f"Train Loss: {epoch_train_loss:.4f}, "
               f"Val Acc: {val_acc:.4f}")
         
+    test_acc = evaluate(model, dataset.test_X.to(device), dataset.test_y.to(device), criterion)[1]
+    print(f"Final Test Accuracy: {test_acc:.4f}")
+        
     # Plot using the plot function
     config = f"depth-{best_depth}-hidden-{hidden_size}"
     plot(epochs, {"Train Loss": train_losses},
-         filename=os.path.join(results_dir, f"q23b-training-loss-{config}.pdf"))
+         filename=os.path.join(results_dir, f"q23b-training-loss-{config}.eps"))
     
     plot(epochs, {"Valid Accuracy": val_accs},
-         filename=os.path.join(results_dir, f"q23b-validation-accuracy-{config}.pdf"))
+         filename=os.path.join(results_dir, f"q23b-validation-accuracy-{config}.eps"))
 
 def question23c():
     """
@@ -715,7 +715,7 @@ def question23c():
     plt.ylim(0, 1)
     plt.grid(True)
     plt.legend()
-    plot_path = os.path.join(results_dir, 'question23c-training-accuracy-vs-depth.pdf')
+    plot_path = os.path.join(results_dir, 'question23c-training-accuracy-vs-depth.eps')
     plt.savefig(plot_path, bbox_inches='tight')
 
 def main():
@@ -845,17 +845,17 @@ def main():
     results_dir = os.path.join("Results", "FFN_results")
     os.makedirs(results_dir, exist_ok=True)
 
-    plot(plot_epochs, losses, filename=os.path.join(results_dir, f'{opt.model}-training-loss-{config}.pdf'))
+    plot(plot_epochs, losses, filename=os.path.join(results_dir, f'{opt.model}-training-loss-{config}.eps'))
     print(f"Final Training Accuracy: {train_accs[-1]:.4f}")
     print(f"Best Validation Accuracy: {max(valid_accs):.4f}")
     val_accuracy = { "Valid Accuracy": valid_accs }
-    plot(plot_epochs, val_accuracy, filename=os.path.join(results_dir, f'{opt.model}-validation-accuracy-{config}.pdf'))
+    plot(plot_epochs, val_accuracy, filename=os.path.join(results_dir, f'{opt.model}-validation-accuracy-{config}.eps'))
     """
 
-    question22a()
-    question22b()
-    question22c()
-    question23a()
+    # question22a()
+    # question22b()
+    # question22c()
+    # question23a()
     question23b()
     question23c()
 
