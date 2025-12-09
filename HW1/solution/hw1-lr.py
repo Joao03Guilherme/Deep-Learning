@@ -79,9 +79,11 @@ class LogisticRegression:
             # dL/dW = d_scores * x_i^T
             grad_W = np.outer(d_scores, x_i)
             
-            # Regularization
+            # Regularization (don't regularize bias - last column)
             if self.regularization == 'l2':
-                grad_W += 2 * l2_decay * self.W
+                reg = 2 * l2_decay * self.W.copy()
+                reg[:, -1] = 0  # Exclude bias column
+                grad_W += reg
             
             # Update
             self.W -= lr * grad_W
@@ -183,6 +185,30 @@ def apply_umap(X_train, X_valid, X_test, n_components=50):
     X_test_umap = reducer.transform(X_test)
     return X_train_umap, X_valid_umap, X_test_umap
 
+def get_hog_features(X, pixels_per_cell=(7, 7), cells_per_block=(2, 2), orientations=9):
+    """
+    5. HOG (Histogram of Oriented Gradients)
+    Extract HOG features from images.
+    HOG captures edge directions and gradient magnitudes, which is effective
+    for character recognition since letters are defined by their edges.
+    
+    References:
+    - Dalal, N., & Triggs, B. (2005). "Histograms of oriented gradients for human detection." CVPR.
+    """
+    from skimage.feature import hog
+    N = X.shape[0]
+    images = X.reshape(N, 28, 28)
+    
+    features = []
+    for img in images:
+        feat = hog(img, orientations=orientations, 
+                   pixels_per_cell=pixels_per_cell,
+                   cells_per_block=cells_per_block, 
+                   block_norm='L2-Hys')
+        features.append(feat)
+    
+    return np.array(features)
+
 def get_data(args, feature_type):
     # Load data (without bias initially)
     data = utils.load_dataset(args.data_path, bias=False)
@@ -205,6 +231,10 @@ def get_data(args, feature_type):
         X_train, X_valid, X_test = apply_pca(X_train, X_valid, X_test, n_components=args.pca_components)
     elif feature_type == 'umap':
         X_train, X_valid, X_test = apply_umap(X_train, X_valid, X_test, n_components=args.pca_components)
+    elif feature_type == 'hog':
+        X_train = get_hog_features(X_train)
+        X_valid = get_hog_features(X_valid)
+        X_test = get_hog_features(X_test)
         
     # Add bias
     X_train = add_bias(X_train)
@@ -267,48 +297,113 @@ def train_and_eval(args, X_train, y_train, X_valid, y_valid, X_test, y_test, nam
     }
 
 def run_grid_search(args, results_dir):
-    lrs = [0.01, 0.001, 0.0001]
-    l2s = [0.001, 0.0001]
-    feature_types = ['pixel', 'projections', 'downsample', 'pca', 'umap']
+    """
+    Grid search as specified in Question 2(c):
+    - 3 learning rate values
+    - 2 L2 penalty values
+    - 2 feature representations (pixel and HOG)
+    Total: 3 x 2 x 2 = 12 configurations
+    """
+    # Grid search parameters (exactly as required by the exercise)
+    lrs = [0.01, 0.001, 0.0001]  # 3 learning rates
+    l2s = [0.001, 0.00001]       # 2 L2 penalties
+    feature_types = ['pixel', 'hog']  # Original (pixel) + alternative (HOG)
+    
+    # Path for results
+    results_file = os.path.join(results_dir, "grid_search_results.json")
+    
+    # Delete previous results if --rerun is specified
+    if args.rerun and os.path.exists(results_file):
+        os.remove(results_file)
+        print(f"Deleted: {results_file}")
+        print("Previous grid search results cleared. Starting fresh.\n")
     
     results = []
     
-    print(f"{'Feature':<12} | {'LR':<8} | {'L2':<8} | {'Val Acc':<8}")
-    print("-" * 45)
+    print("=" * 70)
+    print("Grid Search: 3 LRs x 2 L2s x 2 Features = 12 configurations")
+    print("=" * 70)
+    print(f"{'#':<3} | {'Feature':<8} | {'LR':<10} | {'L2':<10} | {'Val Acc':<10} | {'Test Acc':<10}")
+    print("-" * 70)
     
     best_overall_val = -1
     best_overall_config = None
-    best_overall_test = -1
+    config_num = 0
+    
+    # Preload data for both feature types
+    data_cache = {}
+    for f_type in feature_types:
+        print(f"Loading {f_type} features...")
+        data_cache[f_type] = get_data(args, f_type)
+    print()
     
     for f_type in feature_types:
-        X_train, y_train, X_valid, y_valid, X_test, y_test = get_data(args, f_type)
+        X_train, y_train, X_valid, y_valid, X_test, y_test = data_cache[f_type]
         
         for lr in lrs:
             for l2 in l2s:
+                config_num += 1
                 config_name = f"{f_type}_lr{lr}_l2{l2}"
-                res = train_and_eval(args, X_train, y_train, X_valid, y_valid, X_test, y_test, config_name, results_dir, lr, l2)
                 
-                print(f"{f_type:<12} | {lr:<8} | {l2:<8} | {res['best_valid']:<8.4f}")
+                res = train_and_eval(args, X_train, y_train, X_valid, y_valid, X_test, y_test, 
+                                   config_name, results_dir, lr, l2)
                 
-                results.append({
+                print(f"{config_num:<3} | {f_type:<8} | {lr:<10} | {l2:<10} | {res['best_valid']:<10.4f} | {res['test_acc']:<10.4f}")
+                
+                result_entry = {
+                    "config_num": config_num,
                     "feature": f_type,
                     "lr": lr,
                     "l2": l2,
                     "val_acc": res['best_valid'],
-                    "test_acc": res['test_acc']
-                })
+                    "test_acc": res['test_acc'],
+                    "time": res['time'],
+                    "dim": res['dim']
+                }
+                
+                results.append(result_entry)
                 
                 if res['best_valid'] > best_overall_val:
                     best_overall_val = res['best_valid']
-                    best_overall_config = res
-                    best_overall_test = res['test_acc']
-                    
-    print("\nGrid Search Complete.")
-    print(f"Best Configuration: Feature={best_overall_config['name']}, Val Acc={best_overall_val:.4f}, Test Acc={best_overall_test:.4f}")
+                    best_overall_config = result_entry
+    
+    # Print summary
+    print("\n" + "=" * 70)
+    print("GRID SEARCH RESULTS SUMMARY")
+    print("=" * 70)
+    
+    # Print validation accuracy for every configuration (as required)
+    print("\nValidation accuracy of every configuration:")
+    print("-" * 50)
+    for r in results:
+        print(f"  Config {r['config_num']:2d}: {r['feature']:<6} | lr={r['lr']:<8} | l2={r['l2']:<10} | val_acc={r['val_acc']:.4f}")
+    
+    # Print best configuration and its test accuracy (as required)
+    print("\n" + "-" * 50)
+    print("BEST CONFIGURATION:")
+    print(f"  Feature:           {best_overall_config['feature']}")
+    print(f"  Learning Rate:     {best_overall_config['lr']}")
+    print(f"  L2 Penalty:        {best_overall_config['l2']}")
+    print(f"  Validation Acc:    {best_overall_config['val_acc']:.4f}")
+    print(f"  Test Accuracy:     {best_overall_config['test_acc']:.4f}")
+    print("=" * 70)
     
     # Save results
-    with open(os.path.join(results_dir, "grid_search_results.json"), "w") as f:
-        json.dump(results, f, indent=4)
+    summary = {
+        "description": "Grid search results for Question 2(c)",
+        "grid_parameters": {
+            "learning_rates": lrs,
+            "l2_penalties": l2s,
+            "feature_types": feature_types
+        },
+        "total_configs": 12,
+        "all_results": results,
+        "best_config": best_overall_config
+    }
+    with open(results_file, "w") as f:
+        json.dump(summary, f, indent=4)
+    
+    print(f"\nResults saved to {results_file}")
 
 def main(args):
     utils.configure_seed(seed=args.seed)
@@ -327,7 +422,8 @@ def main(args):
             ('Projections', 'projections'),
             ('Downsample', 'downsample'),
             ('PCA', 'pca'),
-            ('UMAP', 'umap')
+            ('UMAP', 'umap'),
+            ('HOG', 'hog')
         ]
         
         results = []
@@ -445,12 +541,13 @@ if __name__ == '__main__':
     parser.add_argument("--scores", default="Q2-lr-scores.json")
     
     # Feature representation arguments
-    parser.add_argument("--feature-type", choices=['pixel', 'projections', 'downsample', 'pca', 'umap'], default='pixel',
+    parser.add_argument("--feature-type", choices=['pixel', 'projections', 'downsample', 'pca', 'umap', 'hog'], default='pixel',
                         help="Type of feature representation to use.")
     parser.add_argument("--pca-components", type=int, default=50, help="Number of components for PCA.")
     parser.add_argument("--downsample-size", type=int, default=2, help="Pool size for downsampling (e.g. 2 for 14x14).")
     parser.add_argument("--compare-all", action="store_true", help="Run all feature representations and compare them.")
     parser.add_argument("--grid-search", action="store_true", help="Run grid search over hyperparameters and feature representations.")
+    parser.add_argument("--rerun", action="store_true", help="Delete previous grid search results and run from scratch.")
     
     args = parser.parse_args()
     main(args)
