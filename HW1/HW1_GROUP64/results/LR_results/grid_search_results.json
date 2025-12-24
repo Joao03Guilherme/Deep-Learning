@@ -1,0 +1,151 @@
+{
+    "description": "Grid search results for Question 2(c)",
+    "grid_parameters": {
+        "learning_rates": [
+            0.01,
+            0.001,
+            0.0001
+        ],
+        "l2_penalties": [
+            0.001,
+            1e-05
+        ],
+        "feature_types": [
+            "pixel",
+            "hog"
+        ]
+    },
+    "total_configs": 12,
+    "all_results": [
+        {
+            "config_num": 1,
+            "feature": "pixel",
+            "lr": 0.01,
+            "l2": 0.001,
+            "val_acc": 0.68125,
+            "test_acc": 0.6792307692307692,
+            "time": 170.76351237297058,
+            "dim": 785
+        },
+        {
+            "config_num": 2,
+            "feature": "pixel",
+            "lr": 0.01,
+            "l2": 1e-05,
+            "val_acc": 0.6961538461538461,
+            "test_acc": 0.7,
+            "time": 174.04798889160156,
+            "dim": 785
+        },
+        {
+            "config_num": 3,
+            "feature": "pixel",
+            "lr": 0.001,
+            "l2": 0.001,
+            "val_acc": 0.7035096153846154,
+            "test_acc": 0.7052403846153846,
+            "time": 173.498920917511,
+            "dim": 785
+        },
+        {
+            "config_num": 4,
+            "feature": "pixel",
+            "lr": 0.001,
+            "l2": 1e-05,
+            "val_acc": 0.72,
+            "test_acc": 0.7220673076923076,
+            "time": 169.0272626876831,
+            "dim": 785
+        },
+        {
+            "config_num": 5,
+            "feature": "pixel",
+            "lr": 0.0001,
+            "l2": 0.001,
+            "val_acc": 0.693076923076923,
+            "test_acc": 0.6921153846153846,
+            "time": 172.4023687839508,
+            "dim": 785
+        },
+        {
+            "config_num": 6,
+            "feature": "pixel",
+            "lr": 0.0001,
+            "l2": 1e-05,
+            "val_acc": 0.6972115384615385,
+            "test_acc": 0.6974038461538462,
+            "time": 191.3193485736847,
+            "dim": 785
+        },
+        {
+            "config_num": 7,
+            "feature": "hog",
+            "lr": 0.01,
+            "l2": 0.001,
+            "val_acc": 0.7804807692307693,
+            "test_acc": 0.7790865384615384,
+            "time": 56.63688683509827,
+            "dim": 325
+        },
+        {
+            "config_num": 8,
+            "feature": "hog",
+            "lr": 0.01,
+            "l2": 1e-05,
+            "val_acc": 0.8578846153846154,
+            "test_acc": 0.8554807692307692,
+            "time": 52.81609749794006,
+            "dim": 325
+        },
+        {
+            "config_num": 9,
+            "feature": "hog",
+            "lr": 0.001,
+            "l2": 0.001,
+            "val_acc": 0.7803846153846153,
+            "test_acc": 0.7820673076923077,
+            "time": 56.85596585273743,
+            "dim": 325
+        },
+        {
+            "config_num": 10,
+            "feature": "hog",
+            "lr": 0.001,
+            "l2": 1e-05,
+            "val_acc": 0.8229807692307692,
+            "test_acc": 0.8251442307692308,
+            "time": 54.972010374069214,
+            "dim": 325
+        },
+        {
+            "config_num": 11,
+            "feature": "hog",
+            "lr": 0.0001,
+            "l2": 0.001,
+            "val_acc": 0.7336538461538461,
+            "test_acc": 0.7351442307692307,
+            "time": 54.280932903289795,
+            "dim": 325
+        },
+        {
+            "config_num": 12,
+            "feature": "hog",
+            "lr": 0.0001,
+            "l2": 1e-05,
+            "val_acc": 0.7385096153846153,
+            "test_acc": 0.7406730769230769,
+            "time": 54.240350008010864,
+            "dim": 325
+        }
+    ],
+    "best_config": {
+        "config_num": 8,
+        "feature": "hog",
+        "lr": 0.01,
+        "l2": 1e-05,
+        "val_acc": 0.8578846153846154,
+        "test_acc": 0.8554807692307692,
+        "time": 52.81609749794006,
+        "dim": 325
+    }
+}

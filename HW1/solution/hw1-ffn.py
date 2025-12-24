@@ -173,7 +173,6 @@ def question22a():
         generator=torch.Generator().manual_seed(42),
         num_workers=2, pin_memory=True if device.type == 'cuda' else False)
     
-    # Move data to device once
     train_X, train_y = dataset.X.to(device), dataset.y.to(device)
     dev_X, dev_y = dataset.dev_X.to(device), dataset.dev_y.to(device)
     # test_X, test_y = dataset.test_X.to(device), dataset.test_y.to(device)
@@ -203,7 +202,7 @@ def question22a():
     total_configs = len(hidden_unit_sizes) * len(lr_values) * len(dropout_values) * len(l2_values)
     current_config = 0
 
-    # Epoch range for training logic from first file: 0 to epochs
+    # Epoch range for training logic 
     epochs_range = torch.arange(0, epochs_count + 1)
 
     for hidden_size in hidden_unit_sizes:
@@ -240,16 +239,12 @@ def question22a():
                     initial_val_loss, initial_val_acc = evaluate(model, dev_X, dev_y, criterion)
                     
                     # Store current run metrics to find best val acc over epochs if needed, 
-                    # but here we just need the final result or best result?
-                    # The question asks for grid search. Usually we take the best validation accuracy seen.
-                    # Or final. Let's track best_val_acc seen during training.
                     best_val_acc_run = initial_val_acc
                     final_train_acc = initial_train_acc
                     final_train_loss = initial_train_loss
                     final_val_loss = initial_val_loss
                     
                     # training loop
-                    # Corresponds to: for ii in epochs[1:]:
                     for epoch in epochs_range[1:]:
                         model.train()
                         epoch_train_losses = []
@@ -259,8 +254,6 @@ def question22a():
                             epoch_train_losses.append(loss)
                     
                         model.eval()
-                        # We re-evaluate full train set to be consistent with file 1 logic
-                        # epoch_train_loss = torch.tensor(epoch_train_losses).mean().item()
                         train_loss, train_acc = evaluate(model, train_X, train_y, criterion)
                         val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
                         
@@ -270,7 +263,6 @@ def question22a():
                         final_train_acc = train_acc
                         final_train_loss = train_loss
                         final_val_loss = val_loss
-                        final_val_acc = val_acc # Tracking last epoch val acc as well
 
                     print(f'Final Training accuracy: {final_train_acc:.4f}, Best Validation accuracy: {best_val_acc_run:.4f}')
                     
@@ -348,12 +340,7 @@ def question22b():
         l2 = float(best_row['l2_decay'])
         print(f"Loaded best config from CSV: hidden={hidden_size}, lr={lr}, dropout={dropout}, l2={l2}")
     else:
-        # Fallback example values if CSV not found
-        hidden_size = 16
-        lr = 0.001
-        dropout = 0.5
-        l2 = 0.01
-        print("question22a_results.csv not found. Using example fallback config.")
+        raise FileNotFoundError(f"Could not find CSV file at {csv_path} to load best configuration.")
 
     data = utils.load_dataset('emnist-letters.npz')
     dataset = utils.ClassificationDataset(data)
@@ -385,6 +372,8 @@ def question22b():
     
     # Track metrics for plotting
     train_losses = []
+    val_losses = []
+    train_accs = []
     val_accs = []
     
     # Epochs definition from file 1
@@ -392,15 +381,12 @@ def question22b():
     
     # Initial evaluation (Epoch 0)
     model.eval()
-    # Note: File 1 computes initial train loss and val acc
-    # It plots "Train Loss" (y-axis) vs Epoch (x-axis)
-    # It calculates mean of batch losses for training epochs > 0, 
-    # but for epoch 0 it uses full batch evaluation loss.
-    # The first file appended initial_train_loss to train_losses
-    initial_train_loss, _ = evaluate(model, train_X, train_y, criterion)
-    _, initial_val_acc = evaluate(model, dev_X, dev_y, criterion)
+    initial_train_loss, initial_train_acc = evaluate(model, train_X, train_y, criterion)
+    initial_val_loss, initial_val_acc = evaluate(model, dev_X, dev_y, criterion)
     
     train_losses.append(initial_train_loss)
+    val_losses.append(initial_val_loss)
+    train_accs.append(initial_train_acc)
     val_accs.append(initial_val_acc)
     print('initial val acc: {:.4f}'.format(initial_val_acc))
 
@@ -413,17 +399,18 @@ def question22b():
             epoch_train_losses.append(loss)
         
         model.eval()
-        # File 1 logic: epoch_train_loss = torch.tensor(epoch_train_losses).mean().item()
         epoch_train_loss = torch.tensor(epoch_train_losses).mean().item()
-        # And calculates val acc
-        _, val_acc = evaluate(model, dev_X, dev_y, criterion)
+        train_acc = (model(train_X).argmax(dim=1) == train_y).float().mean().item()
+        val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
 
         train_losses.append(epoch_train_loss)
+        val_losses.append(val_loss)
+        train_accs.append(train_acc)
         val_accs.append(val_acc)
 
         print(f"Epoch {ii}/{epochs_count} - "
-              f"Train Loss: {epoch_train_loss:.4f}, "
-              f"Val Acc: {val_acc:.4f}")
+              f"Train Loss: {epoch_train_loss:.4f}, Val Loss: {val_loss:.4f}, "
+              f"Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}")
 
     model.eval()
     final_test_loss, final_test_acc = evaluate(model, test_X, test_y, criterion)
@@ -439,16 +426,15 @@ def question22b():
         f"layers-{number_of_layers}-act-{activation}-opt-adam"
     )
 
-    # Plotting using the provided plot function signature
-    # Plot training loss
-    plot(epochs, {"Train Loss": train_losses},
-         filename=os.path.join(results_dir, f"q22b-training-loss-{config}.eps"))
+    # Plot losses
+    plot(epochs, {"Train Loss": train_losses, "Validation Loss": val_losses},
+         filename=os.path.join(results_dir, f"q22b-losses-{config}.eps"))
     
-    # Plot validation accuracy
-    plot(epochs, {"Valid Accuracy": val_accs},
-         filename=os.path.join(results_dir, f"q22b-validation-accuracy-{config}.eps"))
+    # Plot accuracies
+    plot(epochs, {"Train Accuracy": train_accs, "Validation Accuracy": val_accs},
+         filename=os.path.join(results_dir, f"q22b-accuracies-{config}.eps"))
     
-def question22c():
+def question22c(dropout=True):
     """
     Produce a plot of the final training accuracy as a function of hidden-layer width.
     """
@@ -458,8 +444,15 @@ def question22c():
     csv_path = os.path.join(results_dir, 'question22a_results.csv')
     df = pd.read_csv(csv_path)
 
-    # Filter for best configurations only per hidden size
-    best_df = df[df['best_for_width'] == True]
+    # Filter for best configurations only per hidden  with or without dropout
+    if dropout:
+        best_df = df[(df['best_for_width'] == True) & (df['dropout'] > 0.0)]
+
+    else:
+        best_df = df[(df['best_for_width'] == True) & (df['dropout'] == 0.0)]
+
+
+
 
     # Plot
     plt.clf()
@@ -630,6 +623,7 @@ def question23b():
     # Move data to device once
     train_X, train_y = dataset.X.to(device), dataset.y.to(device)
     dev_X, dev_y = dataset.dev_X.to(device), dataset.dev_y.to(device)
+    test_X, test_y = dataset.test_X.to(device), dataset.test_y.to(device)
 
     n_classes = torch.unique(dataset.y).shape[0]  # 26
     n_feats = dataset.X.shape[1]
@@ -648,14 +642,18 @@ def question23b():
     )
 
     train_losses = []
+    val_losses = []
+    train_accs = []
     val_accs = []
     epochs = torch.arange(0, epochs_count + 1)
     
     # Epoch 0
     model.eval()
-    initial_train_loss, _ = evaluate(model, train_X, train_y, criterion)
-    _, initial_val_acc = evaluate(model, dev_X, dev_y, criterion)
+    initial_train_loss, initial_train_acc = evaluate(model, train_X, train_y, criterion)
+    initial_val_loss, initial_val_acc = evaluate(model, dev_X, dev_y, criterion)
     train_losses.append(initial_train_loss)
+    val_losses.append(initial_val_loss)
+    train_accs.append(initial_train_acc)
     val_accs.append(initial_val_acc)
 
     for ii in epochs[1:]:
@@ -668,25 +666,28 @@ def question23b():
         
         model.eval()
         epoch_train_loss = torch.tensor(epoch_train_losses).mean().item()
-        _, val_acc = evaluate(model, dev_X, dev_y, criterion)
+        train_acc = (model(train_X).argmax(dim=1) == train_y).float().mean().item()
+        val_loss, val_acc = evaluate(model, dev_X, dev_y, criterion)
 
         train_losses.append(epoch_train_loss)
+        val_losses.append(val_loss)
+        train_accs.append(train_acc)
         val_accs.append(val_acc)
 
         print(f"Epoch {ii}/{epochs_count} - "
-              f"Train Loss: {epoch_train_loss:.4f}, "
-              f"Val Acc: {val_acc:.4f}")
+              f"Train Loss: {epoch_train_loss:.4f}, Val Loss: {val_loss:.4f}, "
+              f"Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}")
         
     test_acc = evaluate(model, dataset.test_X.to(device), dataset.test_y.to(device), criterion)[1]
     print(f"Final Test Accuracy: {test_acc:.4f}")
         
     # Plot using the plot function
     config = f"depth-{best_depth}-hidden-{hidden_size}"
-    plot(epochs, {"Train Loss": train_losses},
-         filename=os.path.join(results_dir, f"q23b-training-loss-{config}.eps"))
+    plot(epochs, {"Train Loss": train_losses, "Validation Loss": val_losses},
+         filename=os.path.join(results_dir, f"q23b-losses-{config}.eps"))
     
-    plot(epochs, {"Valid Accuracy": val_accs},
-         filename=os.path.join(results_dir, f"q23b-validation-accuracy-{config}.eps"))
+    plot(epochs, {"Train Accuracy": train_accs, "Validation Accuracy": val_accs},
+         filename=os.path.join(results_dir, f"q23b-accuracies-{config}.eps"))
 
 def question23c():
     """
@@ -853,11 +854,11 @@ def main():
     """
 
     # question22a()
-    # question22b()
-    # question22c()
+    question22b()
+    # question22c(dropout=False)
     # question23a()
-    question23b()
-    question23c()
+    # question23b()
+    # question23c()
 
 if __name__ == '__main__':
     main()
