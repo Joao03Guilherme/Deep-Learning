@@ -105,7 +105,7 @@ n_classes = len(info['label'])
 # Transformations
 transform = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize(mean=[.5], std=[.5])
+    transforms.Normalize(mean=[0], std=[1])
 ])
 
 import time
