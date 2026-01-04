@@ -203,6 +203,10 @@ def plot_combined(epochs, train_losses, val_losses, name=''):
     plt.savefig('%s.pdf' % (name), bbox_inches='tight')
     plt.clf()
 
+def count_parameters(model):
+    """Count the total number of trainable parameters in the model."""
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 def train_best_model(best_params, num_epochs=20):
     """Train the model with best hyperparameters and generate plots"""
     print("\n" + "="*60)
@@ -221,6 +225,8 @@ def train_best_model(best_params, num_epochs=20):
         bidirectional=best_params['bidirectional'],
         dropout=best_params['dropout'],
     ).to(device)
+    
+    print(f"Total trainable parameters: {count_parameters(model):,}")
     
     optimizer = torch.optim.Adam(model.parameters(), lr=best_params['learning_rate'])
     
