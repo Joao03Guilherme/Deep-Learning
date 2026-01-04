@@ -157,6 +157,30 @@ def plot(epochs, plottable, ylabel='', name=''):
     plt.plot(epochs, plottable)
     plt.savefig('%s.eps' % (name), bbox_inches='tight')
 
+def plot_combined(epochs, train_losses, val_accs, name=''):
+    fig, ax1 = plt.subplots()
+    
+    # Plot training loss on left y-axis
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('Training Loss', color='tab:red')
+    ax1.plot(epochs, train_losses, color='tab:red', label='Training Loss')
+    ax1.tick_params(axis='y', labelcolor='tab:red')
+    
+    # Create second y-axis for validation accuracy
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Validation Accuracy', color='tab:blue')
+    ax2.plot(epochs, val_accs, color='tab:blue', label='Validation Accuracy')
+    ax2.tick_params(axis='y', labelcolor='tab:blue')
+    
+    # Add legend
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc='center right')
+    
+    fig.tight_layout()
+    plt.savefig('%s.pdf' % (name), bbox_inches='tight')
+    plt.clf()
+
 train_dataset = BloodMNIST(split='train', transform=transform, download=True, size=28)
 val_dataset   = BloodMNIST(split='val',   transform=transform, download=True, size=28)
 test_dataset  = BloodMNIST(split='test',  transform=transform, download=True, size=28)
@@ -271,6 +295,4 @@ for config in model_configurations:
     )
 
     # Plotting
-    plot(epochs, train_losses, ylabel='Loss', name='{}-training-loss'.format(config['name']))
-    plot(epochs, val_accs, ylabel='Accuracy', name='{}-validation-accuracy'.format(config['name']))
-    plot(epochs, test_accs, ylabel='Accuracy', name='{}-test-accuracy'.format(config['name']))
+    plot_combined(epochs, train_losses, val_accs, name='{}-combined'.format(config['name']))

@@ -1,6 +1,5 @@
 from utils_w_masking import load_rnacompete_data, masked_mse_loss, masked_spearman_correlation, configure_seed
 from torch.utils.data import DataLoader
-from RNN import RNN
 from TRANSFORMER import RNATransformer
 import torch
 import itertools
@@ -62,84 +61,6 @@ def evaluate(loader, model):
     avg_loss = total_loss / len(loader)
     avg_spearman = sum(spearman_vals) / max(len(spearman_vals), 1)
     return avg_loss, avg_spearman
-
-
-
-def run_grid_search_rnn():
-    # Define hyperparameter grid (2-3 values each)
-    param_grid = {
-        'learning_rate': [1e-3, 1e-4],
-        'embedding_dim': [32, 64],
-        'hidden_dim': [64, 128],
-        'n_layers': [1, 2],
-        'dropout': [0.1, 0.3],
-        'bidirectional': [True, False],
-        'use_attention': [True, False]
-    }
-    
-    num_epochs = 20
-    best_spearman = -float('inf')
-    best_params = None
-    results = []
-    
-    # Generate all combinations
-    keys = list(param_grid.keys())
-    combinations = list(itertools.product(*param_grid.values()))
-    
-    print(f"Total configurations to test: {len(combinations)}")
-    
-    for i, values in enumerate(combinations):
-        params = dict(zip(keys, values))
-        print(f"\n[{i+1}/{len(combinations)}] Testing: {params}")
-        
-        # Create model with current hyperparameters
-        model = RNN(
-            vocab_size=5,
-            embedding_dim=params['embedding_dim'],
-            hidden_dim=params['hidden_dim'],
-            output_dim=1,
-            n_layers=params['n_layers'],
-            bidirectional=params['bidirectional'],
-            dropout=params['dropout'],
-            use_attention=params['use_attention']
-        ).to(device)
-        
-        optimizer = torch.optim.Adam(model.parameters(), lr=params['learning_rate'])
-        
-        # Train for num_epochs
-        best_val_spearman_epoch = -float('inf')
-        for epoch in range(num_epochs):
-            train_loss = train_epoch(train_loader, model, optimizer)
-            val_loss, val_spearman = evaluate(val_loader, model)
-            
-            if val_spearman > best_val_spearman_epoch:
-                best_val_spearman_epoch = val_spearman
-            
-            if (epoch + 1) % 5 == 0:
-                print(f"  Epoch {epoch+1}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, Val Spearman={val_spearman:.4f}")
-        
-        results.append((params, best_val_spearman_epoch))
-        print(f"  Best Val Spearman: {best_val_spearman_epoch:.4f}")
-        
-        # Track overall best
-        if best_val_spearman_epoch > best_spearman:
-            best_spearman = best_val_spearman_epoch
-            best_params = params.copy()
-    
-    # Print summary
-    print("\n" + "="*60)
-    print("GRID SEARCH RESULTS SUMMARY")
-    print("="*60)
-    for params, spearman in sorted(results, key=lambda x: x[1], reverse=True)[:5]:
-        print(f"Spearman={spearman:.4f} | {params}")
-    
-    print("\n" + "="*60)
-    print(f"BEST HYPERPARAMETERS (Val Spearman: {best_spearman:.4f}):")
-    print("="*60)
-    for k, v in best_params.items():
-        print(f"  {k}: {v}")
-    
-    return best_params, best_spearman
 
 
 def run_grid_search_transformer():
@@ -223,12 +144,7 @@ def run_grid_search_transformer():
     return best_params, best_spearman
 
 
-if __name__ == "__main__":
-    print("="*60)
-    print("RNN GRID SEARCH")
-    print("="*60)
-    best_rnn_params, best_rnn_spearman = run_grid_search_rnn()
-    
+if __name__ == "__main__":    
     print("\n\n" + "="*60)
     print("TRANSFORMER GRID SEARCH")
     print("="*60)
@@ -237,5 +153,4 @@ if __name__ == "__main__":
     print("\n\n" + "="*60)
     print("FINAL COMPARISON")
     print("="*60)
-    print(f"Best RNN Spearman: {best_rnn_spearman:.4f}")
     print(f"Best Transformer Spearman: {best_transformer_spearman:.4f}")
