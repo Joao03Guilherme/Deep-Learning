@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch
 import random
 import numpy as np
-import matplotlib.pyplot as plt  # Add matplotlib import
+import matplotlib.pyplot as plt  
 
 configure_seed(42)
 
@@ -47,7 +47,7 @@ class RNN(nn.Module):
         embedded = self.embedding(text)
         embedded = self.dropout(embedded)
 
-        _, hidden = self.rnn(embedded)  # GRU returns (output, hidden) instead of (output, (hidden, cell))
+        _, hidden = self.rnn(embedded)  # GRU returns (output, hidden)
 
         if self.bidirectional:
             hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
@@ -264,7 +264,7 @@ def train_best_model(best_params, num_epochs=20):
     print(f"Test Loss: {test_loss:.4f}")
     print(f"Test Spearman: {test_spearman:.4f}")
     
-    # Plot training curves (now plotting train_losses and val_losses)
+    # Plot training curves
     epochs_range = list(range(1, num_epochs + 1))
     plot_combined(epochs_range, train_losses, val_losses, name='RNN_training_curves')
     print("\nPlot saved as 'RNN_training_curves.pdf'")
@@ -282,7 +282,7 @@ def train_best_model(best_params, num_epochs=20):
     
     return model, train_losses, val_losses, test_spearman
 
-# Run random search and then train best model
+# params after running run_random_search_rnn()
 best_params = {
     'learning_rate': 0.00043594007889544996,
     'embedding_dim': 32,

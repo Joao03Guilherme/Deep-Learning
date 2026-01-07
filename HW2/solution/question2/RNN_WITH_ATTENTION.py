@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
+import numpy as np
 
 configure_seed(42)
 
@@ -41,7 +42,7 @@ class MultiHeadAttentionPooling(nn.Module):
         # Output: (batch, seq_len, n_heads)
         scores = self.score_net(rnn_outputs)
 
-        # 2. Apply Masking (ignore padding)
+        # 2. Apply Masking
         if mask is not None:
             # mask: (batch, seq_len) -> (batch, seq_len, 1) for broadcasting
             mask_expanded = mask.unsqueeze(-1)
@@ -171,6 +172,177 @@ def plot_combined(epochs, train_losses, val_losses, name=''):
     plt.clf()
 
 
+def visualize_attention(model, loader, num_samples=5, name='attention_visualization'):
+    """Visualize attention weights for sample sequences with high and low affinity"""
+    model.eval()
+    
+    # Nucleotide mapping for visualization
+    idx_to_nuc = {0: 'A', 1: 'C', 2: 'G', 3: 'U', 4: 'N'}
+    
+    # Collect all data from loader to find high/low affinity samples
+    all_sequences = []
+    all_affinities = []
+    all_masks = []
+    
+    for sequence, affinity, mask in loader:
+        if sequence.dim() == 3:
+            is_ambiguous = (sequence.max(dim=-1).values == sequence.min(dim=-1).values)
+            sequence = sequence.argmax(dim=-1)
+            sequence[is_ambiguous] = 4
+        # Ensure proper dimensions before appending
+        if sequence.dim() == 1:
+            sequence = sequence.unsqueeze(0)
+        if affinity.dim() == 0:
+            affinity = affinity.unsqueeze(0)
+        if mask.dim() == 1:
+            mask = mask.unsqueeze(0)
+        all_sequences.append(sequence)
+        all_affinities.append(affinity.flatten())
+        all_masks.append(mask)
+    
+    all_sequences = torch.cat(all_sequences, dim=0)
+    all_affinities = torch.cat(all_affinities, dim=0)
+    all_masks = torch.cat(all_masks, dim=0)
+    
+    # Sort by affinity and select 1 high and 1 low
+    sorted_indices = torch.argsort(all_affinities)
+    low_indices = sorted_indices[:1]  # 1 lowest affinity
+    high_indices = sorted_indices[-1:]  # 1 highest affinity
+    selected_indices = torch.cat([high_indices, low_indices])  # High first, then low
+    
+    # Select the samples
+    sequence = all_sequences[selected_indices].to(device).long()
+    affinity = all_affinities[selected_indices]
+    mask = all_masks[selected_indices].to(device)
+    
+    # Forward pass to get attention weights
+    with torch.no_grad():
+        embedded = model.embedding(sequence)
+        embedded = model.dropout(embedded)
+        rnn_outputs, _ = model.rnn(embedded)
+        _, attention_weights = model.attention(rnn_outputs, mask=mask)
+    
+    # Convert to numpy
+    attention_weights = attention_weights.cpu().numpy()
+    sequence = sequence.cpu().numpy()
+    mask = mask.cpu().numpy()
+    affinity = affinity.cpu().numpy()
+    
+    # Plot attention for each sample
+    num_samples = 2  # 1 high + 1 low
+    n_heads = attention_weights.shape[2]
+    labels = ['High Affinity', 'Low Affinity']
+    
+    fig, axes = plt.subplots(num_samples, 1, figsize=(12, 2.5 * num_samples))
+    
+    for i in range(num_samples):
+        ax = axes[i]
+        seq = sequence[i]
+        attn = attention_weights[i]
+        seq_mask = mask[i]
+        aff_value = affinity[i]
+        
+        # Get actual sequence length
+        if seq_mask.ndim == 0 or len(seq_mask) == 1:
+            seq_len = len(seq)
+        else:
+            seq_len = int((seq_mask > 0).sum()) if seq_mask.sum() > 0 else len(seq)
+        
+        if seq_len == 0:
+            seq_len = len(seq)
+        
+        seq = seq[:seq_len]
+        attn = attn[:seq_len]
+        
+        # Create heatmap
+        im = ax.imshow(attn.T, aspect='auto', cmap='viridis', interpolation='nearest')
+        
+        # Set labels
+        ax.set_ylabel('Attention Head', fontsize=10)
+        ax.set_xlabel('Sequence Position', fontsize=10)
+        ax.set_yticks(range(n_heads))
+        ax.set_yticklabels([f'Head {h+1}' for h in range(n_heads)], fontsize=9)
+        
+        # Add sequence characters on top
+        seq_labels = [idx_to_nuc.get(int(s), '?') for s in seq]
+        if seq_len <= 50:
+            ax.set_xticks(range(seq_len))
+            ax.set_xticklabels(seq_labels, fontsize=9, fontweight='bold')
+        else:
+            step = max(1, seq_len // 35)
+            ax.set_xticks(range(0, seq_len, step))
+            ax.set_xticklabels([seq_labels[j] for j in range(0, seq_len, step)], fontsize=9, fontweight='bold')
+        
+        ax.set_title(f'{labels[i]} (Affinity: {aff_value:.3f})', fontsize=11, fontweight='bold')
+        
+        plt.colorbar(im, ax=ax, label='Attention Weight', shrink=0.8)
+    
+    plt.tight_layout(pad=0.5)
+    plt.savefig(f'{name}.pdf', bbox_inches='tight', pad_inches=0.1)
+    plt.clf()
+    print(f"Attention visualization saved as '{name}.pdf'")
+    
+    # Also plot average attention
+    plot_average_attention_selected(attention_weights, sequence, mask, affinity, labels, name=f'{name}_average')
+
+
+def plot_average_attention_selected(attention_weights, sequence, mask, affinity, labels, name='attention_average'):
+    """Plot average attention weights for pre-selected samples"""
+    idx_to_nuc = {0: 'A', 1: 'C', 2: 'G', 3: 'U', 4: 'N'}
+    
+    num_samples = len(sequence)
+    
+    fig, axes = plt.subplots(num_samples, 1, figsize=(12, 2 * num_samples))
+    if num_samples == 1:
+        axes = [axes]
+    
+    for i in range(num_samples):
+        ax = axes[i]
+        seq = sequence[i]
+        attn = attention_weights[i]
+        seq_mask = mask[i]
+        aff_value = affinity[i]
+        
+        # Get actual sequence length
+        if seq_mask.ndim == 0 or len(seq_mask) == 1:
+            seq_len = len(seq)
+        else:
+            seq_len = int((seq_mask > 0).sum()) if seq_mask.sum() > 0 else len(seq)
+        
+        if seq_len == 0:
+            seq_len = len(seq)
+        
+        seq = seq[:seq_len]
+        attn_avg = attn[:seq_len].mean(axis=1)
+        
+        positions = np.arange(seq_len)
+        bars = ax.bar(positions, attn_avg, color='steelblue', alpha=0.7)
+        
+        threshold = np.percentile(attn_avg, 90)
+        for j, (bar, weight) in enumerate(zip(bars, attn_avg)):
+            if weight >= threshold:
+                bar.set_color('crimson')
+        
+        ax.set_ylabel('Avg Attention', fontsize=10)
+        ax.set_xlabel('Position', fontsize=10)
+        
+        seq_labels = [idx_to_nuc.get(int(s), '?') for s in seq]
+        ax.set_title(f'{labels[i]} (Affinity: {aff_value:.3f})', fontsize=11, fontweight='bold')
+        
+        if seq_len <= 50:
+            ax.set_xticks(positions)
+            ax.set_xticklabels(seq_labels, fontsize=9, fontweight='bold')
+        else:
+            step = max(1, seq_len // 35)
+            ax.set_xticks(range(0, seq_len, step))
+            ax.set_xticklabels([seq_labels[j] for j in range(0, seq_len, step)], fontsize=9, fontweight='bold')
+    
+    plt.tight_layout(pad=0.5)
+    plt.savefig(f'{name}.pdf', bbox_inches='tight', pad_inches=0.1)
+    plt.clf()
+    print(f"Average attention visualization saved as '{name}.pdf'")
+
+
 def count_parameters(model):
     """Count the total number of trainable parameters in the model."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -233,7 +405,7 @@ def train_best_model(best_params, num_epochs=20):
     print(f"Test Loss: {test_loss:.4f}")
     print(f"Test Spearman: {test_spearman:.4f}")
 
-    # Plot training curves (now plotting train_losses and val_losses)
+    # Plot training curves
     epochs_range = list(range(1, num_epochs + 1))
     plot_combined(epochs_range, train_losses, val_losses, name='RNN_attention_training_curves')
     print("\nPlot saved as 'RNN_attention_training_curves.pdf'")
@@ -251,7 +423,7 @@ def train_best_model(best_params, num_epochs=20):
 
     return model, train_losses, val_losses, test_spearman
 
-# Best hyperparameters (add n_attention_heads to control attention)
+# Best hyperparameters
 best_params = {
     'learning_rate': 0.0005,
     'embedding_dim': 32,
@@ -262,3 +434,7 @@ best_params = {
     'n_attention_heads': 2  # Simple attention with 1-2 heads
 }
 model, train_losses, val_losses, test_spearman = train_best_model(best_params, num_epochs=20)
+
+# Visualize attention weights
+print("\nGenerating attention visualizations...")
+visualize_attention(model, test_loader, num_samples=5, name='RNN_attention_visualization')
