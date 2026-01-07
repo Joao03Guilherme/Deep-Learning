@@ -8,6 +8,7 @@ import pickle
 import json
 import os
 import copy
+import matplotlib.pyplot as plt
 
 import numpy as np
 from sklearn.decomposition import PCA
@@ -250,9 +251,11 @@ def train_and_eval(args, X_train, y_train, X_valid, y_valid, X_test, y_test, nam
     # Initialize model
     model = LogisticRegression(n_classes, n_features, regularization="l2")
     
+    # Epoch 0
+    train_accs = [model.evaluate(X_train, y_train)]
+    valid_accs = [model.evaluate(X_valid, y_valid)]
+    
     epochs = np.arange(1, args.epochs + 1)
-    valid_accs = []
-    train_accs = []
     
     start = time.time()
     
@@ -429,6 +432,7 @@ def main(args):
         results = []
         curves = {}
         epochs = np.arange(1, args.epochs + 1)
+        plot_epochs = np.arange(0, args.epochs + 1)
         
         print(f"{'Name':<15} | {'Dim':<5} | {'Time (s)':<8} | {'Val Acc':<8} | {'Test Acc':<8}")
         print("-" * 65)
@@ -438,11 +442,13 @@ def main(args):
             
             res = train_and_eval(args, X_train, y_train, X_valid, y_valid, X_test, y_test, name, results_dir, args.learning_rate, args.l2_decay)
             results.append(res)
-            curves[name] = (epochs, res['valid_accs'])
+            curves[name] = (plot_epochs, res['valid_accs'])
             
             print(f"{res['name']:<15} | {res['dim']:<5} | {res['time']:<8.2f} | {res['best_valid']:<8.4f} | {res['test_acc']:<8.4f}")
             
         # Plot comparison
+        plt.xticks(np.arange(0, args.epochs + 1, 5))
+        plt.xlim(0, args.epochs)
         utils.plot("Epoch", "Validation Accuracy", curves, filename=os.path.join(results_dir, "comparison_plot.pdf"))
         
         # Save comparison json
@@ -473,9 +479,11 @@ def main(args):
     # Initialize model
     model = LogisticRegression(n_classes, n_features, regularization="l2")
     
+    # Epoch 0
+    train_accs = [model.evaluate(X_train, y_train)]
+    valid_accs = [model.evaluate(X_valid, y_valid)]
+    
     epochs = np.arange(1, args.epochs + 1)
-    valid_accs = []
-    train_accs = []
     
     start = time.time()
     
@@ -514,9 +522,12 @@ def main(args):
     
     print('Best model test acc: {:.4f}'.format(test_acc))
     
+    plot_epochs = np.arange(0, args.epochs + 1)
+    plt.xticks(np.arange(0, args.epochs + 1, 5))
+    plt.xlim(0, args.epochs)
     utils.plot(
         "Epoch", "Accuracy",
-        {"train": (epochs, train_accs), "valid": (epochs, valid_accs)},
+        {"train": (plot_epochs, train_accs), "valid": (plot_epochs, valid_accs)},
         filename=accuracy_plot_path
     )
     

@@ -1,8 +1,8 @@
 {
-    "best_valid": 0.6971634615384615,
+    "best_valid": 0.6971153846153846,
     "selected_epoch": 20,
     "test": 0.696875,
-    "time": 77.82338380813599,
+    "time": 160.74418783187866,
     "args": {
         "epochs": 20,
         "data_path": "emnist-letters.npz",
@@ -16,6 +16,7 @@
         "pca_components": 50,
         "downsample_size": 2,
         "compare_all": false,
-        "grid_search": false
+        "grid_search": false,
+        "rerun": false
     }
 }

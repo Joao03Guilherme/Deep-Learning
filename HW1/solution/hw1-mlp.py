@@ -7,6 +7,7 @@ import time
 import pickle
 import json
 import os
+import matplotlib.pyplot as plt
 
 import numpy as np
 
@@ -138,12 +139,23 @@ def main(args):
     # Initialize model
     model = MLP(n_classes, n_feats, args.hidden_size, args.learning_rate)
 
+    # Epoch 0
+    train_accs = [model.evaluate(X_train, y_train)]
+    valid_accs = [model.evaluate(X_valid, y_valid)]
+    
+    # Calculate initial loss
+    total_loss = 0
+    n_samples = X_train.shape[0]
+    for i in range(n_samples):
+        x = X_train[i]
+        target = y_train[i]
+        probs, _, _ = model.forward(x)
+        loss = -np.log(probs[target])
+        total_loss += loss
+    train_losses = [total_loss / n_samples]
+
     epochs = np.arange(1, args.epochs + 1)
     
-    train_losses = []
-    train_accs = []
-    valid_accs = []
-
     start = time.time()
 
     best_valid = 0.0
@@ -180,17 +192,23 @@ def main(args):
 
     print('Best model test acc: {:.4f}'.format(test_acc))
 
+    plot_epochs = np.arange(0, args.epochs + 1)
+
     # Plot accuracies
+    plt.xticks(np.arange(0, args.epochs + 1, 5))
+    plt.xlim(0, args.epochs)
     utils.plot(
         "Epoch", "Accuracy",
-        {"train": (epochs, train_accs), "valid": (epochs, valid_accs)},
+        {"train": (plot_epochs, train_accs), "valid": (plot_epochs, valid_accs)},
         filename=accuracy_plot_path
     )
     
     # Plot loss
+    plt.xticks(np.arange(0, args.epochs + 1, 5))
+    plt.xlim(0, args.epochs)
     utils.plot(
         "Epoch", "Loss",
-        {"train": (epochs, train_losses)},
+        {"train": (plot_epochs, train_losses)},
         filename=loss_plot_path
     )
 

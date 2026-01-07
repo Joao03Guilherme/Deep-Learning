@@ -7,6 +7,7 @@ import time
 import pickle
 import json
 import os
+import matplotlib.pyplot as plt
 
 import numpy as np
 
@@ -94,10 +95,11 @@ def main(args):
     # initialize the model
     model = Perceptron(n_classes, n_feats)
 
-    epochs = np.arange(1, args.epochs + 1)
+    # Epoch 0
+    train_accs = [model.evaluate(X_train, y_train)]
+    valid_accs = [model.evaluate(X_valid, y_valid)]
 
-    valid_accs = []
-    train_accs = []
+    epochs = np.arange(1, args.epochs + 1)
 
     start = time.time()
 
@@ -136,9 +138,12 @@ def main(args):
 
     print('Best model test acc: {:.4f}'.format(test_acc))
 
+    plot_epochs = np.arange(0, args.epochs + 1)
+    plt.xticks(np.arange(0, args.epochs + 1, 5))
+    plt.xlim(0, args.epochs)
     utils.plot(
         "Epoch", "Accuracy",
-        {"train": (epochs, train_accs), "valid": (epochs, valid_accs)},
+        {"train": (plot_epochs, train_accs), "valid": (plot_epochs, valid_accs)},
         filename=accuracy_plot_path
     )
 

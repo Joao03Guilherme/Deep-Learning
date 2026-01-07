@@ -1,6 +1,6 @@
 from utils_w_masking import load_rnacompete_data, masked_mse_loss, masked_spearman_correlation, configure_seed
 from torch.utils.data import DataLoader
-from TRANSFORMER import RNATransformer
+from HW2.solution.question2.TrasnformerEncoder import RNATransformer
 import torch
 import itertools
 
